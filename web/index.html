@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小晴</title>
+<style>
+  :root {
+    --bg: #fbf7f4; --panel: #ffffff; --ink: #2b2522; --muted: #8a7f79; --line: #ece4de;
+    --accent: #e0766b; --accent-ink: #ffffff; --user: #f3ebe5; --bot: #fde9e5; --ok: #4f9d69; --bad: #c4554b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1d1a19; --panel: #262220; --ink: #f1ebe7; --muted: #a39892; --line: #3a3330;
+      --accent: #ec8a7f; --accent-ink: #1d1a19; --user: #332d2a; --bot: #4a2f2b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 20px 16px 32px; display: flex; flex-direction: column; gap: 16px; min-height: 100vh; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: .02em; }
+  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+
+  .face-wrap { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 24px 16px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  /* 之後硬體上的 OLED 臉：這裡先用簡單的眼睛和嘴巴模擬 */
+  .face { width: 168px; height: 112px; border-radius: 24px; background: #1b1716; position: relative; overflow: hidden; }
+  .eye { position: absolute; top: 34px; width: 26px; height: 34px; border-radius: 13px; background: #ffd9d2; transition: height .15s, top .15s; }
+  .eye.l { left: 44px; } .eye.r { right: 44px; }
+  .mouth { position: absolute; left: 50%; bottom: 20px; width: 34px; height: 6px; margin-left: -17px; border-radius: 6px; background: #ffd9d2; transition: height .08s; }
+  .face.listening .eye { animation: blink 4s infinite; }
+  .face.hearing .eye { height: 38px; top: 32px; }
+  .face.thinking .eye { height: 10px; top: 46px; }
+  .face.speaking .mouth { animation: talk .26s infinite alternate; }
+  .face.offline { opacity: .35; }
+  @keyframes blink { 0%, 94%, 100% { height: 34px; top: 34px; } 97% { height: 4px; top: 50px; } }
+  @keyframes talk { from { height: 6px; } to { height: 18px; } }
+  .state { font-size: 14px; color: var(--muted); min-height: 1.4em; }
+  .meter { width: 168px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .06s; }
+
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 15px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 10px 16px; border-radius: 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  .log { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 16px;
+    display: flex; flex-direction: column; gap: 10px; min-height: 240px; max-height: 46vh; overflow-y: auto; }
+  .msg { max-width: 85%; padding: 9px 13px; border-radius: 14px; line-height: 1.55; font-size: 15px; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .msg.sys { align-self: center; background: none; color: var(--muted); font-size: 12px; padding: 2px; }
+  .msg .meta { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
+  form { display: flex; gap: 8px; }
+  input[type=text] { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 10px 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.6; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>小晴</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="conn">未連線</span></div>
+  </header>
+
+  <section class="face-wrap">
+    <div class="face offline" id="face"><div class="eye l"></div><div class="eye r"></div><div class="mouth"></div></div>
+    <div class="state" id="state">按「開始」跟小晴說話</div>
+    <div class="meter"><i id="level"></i></div>
+  </section>
+
+  <div class="controls">
+    <button class="primary" id="btnConnect">開始</button>
+    <button id="btnAbort" disabled>打斷她</button>
+  </div>
+
+  <section class="log" id="log" aria-live="polite"></section>
+
+  <form id="textForm">
+    <input type="text" id="textInput" placeholder="也可以打字跟她說話" autocomplete="off" disabled>
+    <button type="submit" id="btnSend" disabled>送出</button>
+  </form>
+
+  <p class="hint">講完停一下（約 0.5 秒）她就會回答。她說話時不會收音；喇叭聲音被麥克風收到的話請戴耳機。需要 Chrome 或 Edge。</p>
+</main>
+<script type="module" src="/web/app.js"></script>
+</body>
+</html>

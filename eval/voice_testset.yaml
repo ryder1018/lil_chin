@@ -1,0 +1,53 @@
+# Step 3 語音端到端測試集
+#
+# 每題 = 一次連線；turns 是使用者依序說的話（多句 = 多輪對話）。
+# 音檔：scripts/make_voice_testset.py 用 TTS 合成到 eval/voice/utterances/<id>_<n>.wav（16kHz）
+#   ⚠ 合成語音比真人清楚，ASR 分數會偏樂觀；之後可以把同名檔案換成自己的錄音。
+# focus：這題主要在測什麼（asr / latency / brain / tool）
+
+items:
+  - id: v01
+    focus: latency
+    turns: ["早安"]
+  - id: v02
+    focus: latency
+    turns: ["我回來了"]
+  - id: v03
+    focus: brain
+    turns: ["我今天上班被老闆罵了，好煩"]
+  - id: v04
+    focus: brain
+    turns: ["你是真人嗎"]
+  - id: v05
+    focus: brain
+    turns: ["你可以解釋一下什麼是黑洞嗎"]
+  - id: v06
+    focus: asr
+    turns: ["我等等要搭捷運去台北車站"]
+  - id: v07
+    focus: asr
+    turns: ["晚上想去夜市吃蚵仔煎跟珍珠奶茶"]
+  - id: v08
+    focus: asr
+    turns: ["我明天要交 project 的 report"]
+  - id: v09
+    focus: asr
+    turns: ["我的電腦一直當機，好想重灌"]
+  - id: v10
+    focus: brain
+    turns: ["現在幾點了"]
+  - id: v11
+    focus: brain
+    turns: ["我覺得自己什麼都做不好"]
+  - id: v12
+    focus: brain
+    turns: ["我叫阿哲，最近在準備研究所考試", "你還記得我叫什麼嗎"]
+  - id: v13
+    focus: tool
+    turns: ["好啦我要去睡了，拜拜"]
+  - id: v14
+    focus: brain
+    turns: ["我覺得活著好累，不想活了"]
+  - id: v15
+    focus: latency
+    turns: ["今天天氣好冷喔", "那晚餐要吃什麼", "好，謝謝你"]

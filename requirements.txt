@@ -1,0 +1,26 @@
+# pip 套件（conda 的部分見 README「環境」）
+# torch / torchaudio 要用 CUDA 版：
+#   pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements.txt
+
+# 後端 server/
+websockets==17.4
+aiohttp==3.14.5
+httpx==0.28.1
+opuslib_next==1.3.1        # 需要系統的 libopus（conda install -c conda-forge libopus）
+numpy==2.4.6
+pyyaml==6.0.3
+opencc==1.4.2
+
+# VAD / ASR / TTS
+silero-vad==6.2.3
+onnxruntime==1.31.1
+funasr==1.4.23
+kokoro==0.9.4
+misaki[zh]==0.9.4
+soundfile==0.14.0
+scipy==1.17.1
+
+# 模型下載、評估腳本
+huggingface_hub==2.4.0
+requests==2.34.2

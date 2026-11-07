@@ -1,0 +1,52 @@
+# 機器人後端設定（路徑都相對於專案根目錄）
+
+server:
+  host: 0.0.0.0
+  ws_port: 8000          # 裝置連線（WebSocket，路徑 /xiaozhi/v1/，相容小智韌體）
+  http_port: 8003        # OTA（/xiaozhi/ota/）+ 瀏覽器假裝置網頁（/）
+  # OTA 回給裝置的 WebSocket 位址。瀏覽器測試用 127.0.0.1；
+  # 之後 ESP32 要連時改成電腦的區網 IP，例如 ws://192.168.1.10:8000/xiaozhi/v1/
+  public_ws_url: ws://127.0.0.1:8000/xiaozhi/v1/
+
+character:
+  persona: prompts/girlfriend_v3.md      # 角色設定（Step 2 調出來的）
+  voice_rules: prompts/voice_rules.md    # 語音對話補充規則 + 現在時間
+  wakeup_words: [你好小晴, 小晴小晴, 嗨小晴]
+  goodbye_reply: 掰掰，下次再聊喔。
+
+llm:
+  url: http://127.0.0.1:8080/v1          # llama-server
+  max_tokens: 300
+  history_turns: 10                      # 保留最近幾輪對話
+
+vad:
+  threshold: 0.5         # 語音機率 ≥ 這個值 = 有聲音
+  threshold_low: 0.3     # ≤ 這個值 = 沒聲音；中間沿用上一個狀態
+  min_silence_ms: 500    # 靜音多久算講完（200 會把句中停頓切斷，700 太慢）
+  min_speech_ms: 300     # 太短的聲音（咳嗽、碰撞）不送 ASR
+
+asr:
+  model_dir: models/SenseVoiceSmall
+  language: zh           # zh 的 CER 比 auto 低
+  # cuda:0：GPU 閒置幾秒後第一次推論會慢 ~200ms（WSL2），但 brain.prewarm 在使用者說話時就喚醒 GPU，
+  # 所以 GPU 最快。VRAM 不夠時（例如換 BreezyVoice）改 cpu：穩定 ~150ms、省 ~1.3GB，端到端約慢 80ms
+  device: cuda:0
+  threads: 4
+
+
+tts:
+  engine: kokoro
+  voice: zf_017
+  speed: 1.1
+  device: cuda
+
+audio:
+  in_sample_rate: 16000  # 裝置 → 伺服器
+  out_sample_rate: 24000 # 伺服器 → 裝置（Kokoro 原生 24k，不用重取樣）
+  frame_ms: 60
+
+session:
+  idle_close_s: 120      # 這麼久沒人說話就斷線（裝置會進入待機）
+
+logging:
+  conversation_dir: logs/conversations
