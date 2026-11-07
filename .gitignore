@@ -5,3 +5,4 @@ third_party/
 eval/voice/replies/
 eval/voice/voice_samples/
 .vscode/
+docs/

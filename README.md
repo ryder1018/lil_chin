@@ -1,7 +1,6 @@
 # ai_robot
 
 離線、會說台灣話的桌上陪伴機器人「小晴」。大腦（LLM）、聽（ASR）、說（TTS）全部在本機跑，不需要網路。
-計畫見 [docs/initial_plan.md](docs/initial_plan.md)。
 
 ```
 瀏覽器 / ESP32 ── WebSocket + Opus ──▶ server/（python -m server）
@@ -35,7 +34,6 @@ bash scripts/robot.sh stop
 | `prompts/` | 小晴的人設（`girlfriend_v3.md`）和語音規則（`voice_rules.md`） |
 | `eval/` | 測試集（文字 `testset.yaml`、語音 `voice_testset.yaml`）和評估報告 |
 | `scripts/` | 啟動、評估、工具腳本 |
-| `docs/` | 計畫、CLAUDE.md |
 | `models/` | 模型檔（不進版本控制，見下方「模型」） |
 | `logs/conversations/` | 每一輪對話的紀錄（Step 4 微調資料、之後的長期記憶） |
 
