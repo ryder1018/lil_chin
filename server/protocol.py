@@ -11,7 +11,7 @@
     {"type":"hello","audio_params":{"format":"opus","sample_rate":16000,"channels":1,"frame_duration":60}}
     {"type":"listen","state":"start","mode":"auto|manual|realtime"}   開始收音
     {"type":"listen","state":"stop"}                                   manual 模式：按鈕放開 = 講完
-    {"type":"listen","state":"detect","text":"你好小晴"}               裝置端喚醒詞（或直接傳文字）
+    {"type":"listen","state":"detect","text":"你好小魚"}               裝置端喚醒詞（或直接傳文字）
     {"type":"abort"}                                                   打斷正在說的話
   二進位：Opus 封包（16kHz 單聲道，每包 60ms）
 

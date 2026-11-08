@@ -289,6 +289,7 @@ class Session:
             "raw": rec.raw,
             "tool_calls": rec.tool_calls or None,
             "exit": rec.exit,
+            "exit_by": rec.exit_by,
             "timing": t,
             "llm": {k: v for k, v in asdict(rec).items()
                     if k in ("ttft_ms", "first_segment_ms", "total_ms", "prompt_tokens", "cached_tokens")},

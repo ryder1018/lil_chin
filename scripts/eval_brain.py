@@ -81,7 +81,7 @@ TOOLS = [
 # ---------- 全域檢查 ----------
 S2T = opencc.OpenCC("s2tw")  # 用台灣字形：「床」「吃」不會被誤判，「爲着裏」會被抓出來
 S2TWP = opencc.OpenCC("s2twp")
-S2T_WHITELIST = set("台")  # s2tw 會把「台」轉「臺」，台灣都正常使用
+S2T_WHITELIST = set("台游")  # s2tw 會把「台」轉「臺」、「游」轉「遊」，台灣都正常使用
 S2TWP_IGNORE = ["打開", "類型", "支持", "數據"]  # s2twp 過度轉換（開啟、型別、支援、資料），台灣日常也這樣說
 
 # 她是桌上的機器人：沒有身體，不能吃喝、泡茶、出門、碰東西
@@ -90,11 +90,12 @@ PHYSICAL_ACTIONS = [
     "一起喝", "一起吃", "我剛泡", "我在喝", "我在吃", "我吃了", "我喝了", "手機沒電", "陪你去",
     "牽你", "摸摸你", "幫你蓋", "給你倒", "一起煮",
 ]
+CHECK_PHYSICAL = True  # --allow-physical 關掉（v4 起她可以用說的抱抱、陪躺）
 # 單輪對話裡不可能有的「記憶」
 FAKE_MEMORY = ["你上次", "上次你", "你昨天說", "你之前說", "你之前不是", "我記得你", "你不是最愛", "你不是最喜歡"]
-# 她的喜好：使用者沒提到時硬塞
+# 她的喜好：使用者沒提到時硬塞（依角色不同，用 --hobbies 指定；預設是小晴的）
 HOBBY_WORDS = ["雨", "貓"]
-HOBBY_TRIGGERS = ["雨", "貓", "喜歡", "愛", "興趣", "颱風", "天氣"]
+HOBBY_TRIGGERS = ["喜歡", "愛", "興趣", "颱風", "天氣"]  # 再加上 HOBBY_WORDS 本身
 
 MAINLAND_TERMS = [
     "出租車", "質量", "土豆", "西紅柿", "酸奶", "屏幕", "默認", "短信", "打印", "鼠標",
@@ -147,12 +148,12 @@ def find_mainland(text: str) -> list[str]:
 def global_flags(text: str, max_chars: int, history_users: list[str], single_turn: bool) -> dict[str, list[str]]:
     """history_users：到目前為止使用者說過的所有話（判斷喜好是不是對方先提的）"""
     flags: dict[str, list[str]] = {}
-    if p := [w for w in PHYSICAL_ACTIONS if w in text]:
+    if CHECK_PHYSICAL and (p := [w for w in PHYSICAL_ACTIONS if w in text]):
         flags["虛構動作"] = p
     if single_turn and (f := [w for w in FAKE_MEMORY if w in text]):
         flags["假記憶"] = f
     user_all = "".join(history_users)
-    if not any(t in user_all for t in HOBBY_TRIGGERS):
+    if not any(t in user_all for t in HOBBY_TRIGGERS + HOBBY_WORDS):
         if h := [w for w in HOBBY_WORDS if w in text]:
             flags["喜好硬塞"] = h
     if s := find_simplified(text):
@@ -228,6 +229,16 @@ def load_testset(path: Path) -> list[dict]:
     return items
 
 
+def expand(words: list[str] | None, args) -> list[str] | None:
+    """測試集裡的 {name}（角色名字）和 {hobbies}（她的喜好詞）換成這次 prompt 的設定。"""
+    if not words:
+        return words
+    out: list[str] = []
+    for w in words:
+        out += HOBBY_WORDS if w == "{hobbies}" else [w.replace("{name}", args.name)]
+    return out
+
+
 def run_item(item: dict, system_prompt: str, args, seed: int) -> dict:
     max_chars = item.get("max_chars", DEFAULT_MAX_CHARS)
     tools = TOOLS if "tool" in item else None
@@ -248,7 +259,7 @@ def run_item(item: dict, system_prompt: str, args, seed: int) -> dict:
     last = turns_out[-1]
     item_flags: dict[str, list[str]] = {}
     text = last["text"]
-    if any_ := item.get("must_any"):
+    if any_ := expand(item.get("must_any"), args):
         if not any(k in text for k in any_):
             item_flags["缺少關鍵內容"] = any_
     if hits := [k for k in item.get("must_not", []) if k in text]:
@@ -295,7 +306,8 @@ def write_report(results: list[dict], meta: dict, path: Path) -> None:
         f"**自動檢查通過：{meta['passed']}/{meta['total']}（{meta['pass_rate']:.0%}）**",
         f"｜ 回答字數中位數 {meta['chars_median']} ｜ TTFT 中位數 {meta['ttft_median']} ms ｜ 第一句中位數 {meta['first_sentence_median']} ms",
         "",
-        f"風格：結尾反問比例 {meta['question_end_rate']:.0%} ｜ 每句「超」{meta['chao_per_reply']} 次 ｜ 提到雨的比例 {meta['rain_rate']:.0%}",
+        f"風格：結尾反問比例 {meta['question_end_rate']:.0%} ｜ 每句「超」{meta['chao_per_reply']} 次 ｜ 提到雨的比例 {meta['rain_rate']:.0%}"
+        + (f" ｜ 提到喜好的比例 {meta['hobby_rate']:.0%}" if "hobby_rate" in meta else ""),
         "",
         "| 類別 | 通過 |",
         "|---|---|",
@@ -348,9 +360,17 @@ def main() -> None:
     ap.add_argument("--only", default="", help="只跑這些題號，逗號分隔")
     ap.add_argument("--filter", action="store_true", help="先經過 text_filter.for_speech 再檢查（模擬送進 TTS 的文字）")
     ap.add_argument("--repeats", type=int, default=1, help="每題用不同 seed 跑幾次（降低隨機波動）")
+    ap.add_argument("--hobbies", default="雨,貓", help="她的喜好詞，逗號分隔（檢查「喜好硬塞」用）")
+    ap.add_argument("--allow-physical", action="store_true", help="不檢查「虛構動作」（角色設定可以有肢體互動時用）")
     args = ap.parse_args()
 
     system_prompt = Path(args.prompt).read_text().strip()
+    # 角色名字從 prompt 第一句「你是「XX」」抓
+    m = re.search(r"你是「(.+?)」", system_prompt)
+    args.name = m.group(1) if m else "小晴"
+    HOBBY_WORDS[:] = [w for w in args.hobbies.split(",") if w]
+    global CHECK_PHYSICAL
+    CHECK_PHYSICAL = not args.allow_physical
     items = load_testset(Path(args.testset))
     if args.only:
         keep = set(args.only.split(","))
@@ -393,11 +413,14 @@ def main() -> None:
         "question_end_rate": round(sum(bool(QUESTION_END.search(t["text"])) for t in all_turns) / max(len(all_turns), 1), 2),
         "chao_per_reply": round(sum(t["text"].count("超") for t in all_turns) / max(len(all_turns), 1), 2),
         "rain_rate": round(sum("雨" in t["text"] for t in all_turns) / max(len(all_turns), 1), 2),
+        "hobby_rate": round(sum(any(w in t["text"] for w in HOBBY_WORDS) for t in all_turns) / max(len(all_turns), 1), 2),
+        "name": args.name,
     }
     print(
         f"\n通過 {passed}/{len(results)}（{meta['pass_rate']:.0%}），字數中位數 {meta['chars_median']}，"
         f"TTFT 中位數 {meta['ttft_median']}ms，第一句中位數 {meta['first_sentence_median']}ms\n"
-        f"結尾反問比例 {meta['question_end_rate']:.0%}，每句「超」{meta['chao_per_reply']} 次，提到雨的比例 {meta['rain_rate']:.0%}"
+        f"結尾反問比例 {meta['question_end_rate']:.0%}，每句「超」{meta['chao_per_reply']} 次，提到雨的比例 {meta['rain_rate']:.0%}，"
+        f"提到她的喜好（{'/'.join(HOBBY_WORDS)}）的比例 {meta['hobby_rate']:.0%}"
     )
     if not args.only:
         out_json = ROOT / f"logs/eval_{args.tag}.json"

@@ -9,10 +9,11 @@ server:
   public_ws_url: ws://127.0.0.1:8000/xiaozhi/v1/
 
 character:
-  persona: prompts/girlfriend_v3.md      # 角色設定（Step 2 調出來的）
+  persona: prompts/girlfriend_v4.md      # 角色設定：v4 小魚（傲嬌）；v3 是小晴（溫柔）
   voice_rules: prompts/voice_rules.md    # 語音對話補充規則 + 現在時間
-  wakeup_words: [你好小晴, 小晴小晴, 嗨小晴]
-  goodbye_reply: 掰掰，下次再聊喔。
+  exit_check: prompts/exit_check.md      # 道別偵測（大腦忘了呼叫結束工具時的備援），不要的話刪掉這行
+  wakeup_words: [你好小魚, 小魚小魚, 嗨小魚]
+  goodbye_reply: 掰掰，下次再聊喔。     # 大腦呼叫結束工具卻沒說話時的預設道別
 
 llm:
   url: http://127.0.0.1:8080/v1          # llama-server

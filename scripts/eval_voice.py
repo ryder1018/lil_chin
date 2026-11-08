@@ -4,7 +4,7 @@
   1. 連線、hello 握手（跟真的裝置一樣）
   2. 以真實速度（每 60ms 一個 frame）送出語音，接著送靜音，讓伺服器的 VAD 自己判斷講完了
   3. 記錄伺服器回來的每個訊息時間：stt（辨識結果）、tts sentence_start、第一個音訊封包、tts stop
-  4. 把小晴的回答音訊解碼存成 wav
+  4. 把機器人的回答音訊解碼存成 wav
 
 量測：
   端到端延遲 = 第一個回覆音訊封包 - 使用者講完最後一個字   ← 目標 < 1.5 秒
@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 import opuslib_next as opus
 import websockets
+from websockets.protocol import State
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -190,8 +191,16 @@ async def run_item(url: str, item: dict, args) -> dict:
             with wave.open(str(wav_path), "wb") as w:
                 w.setnchannels(1), w.setsampwidth(2), w.setframerate(out_sr)
                 w.writeframes(r.pop("_pcm"))
+            # 道別時伺服器會在說完後主動關閉連線（xiaozhi-server 則是送「% 工具名」的 stt，見 receiver）
+            try:
+                await asyncio.wait_for(ws.wait_closed(), 1.0)
+                r["ended"] = True
+            except asyncio.TimeoutError:
+                r["ended"] = False
+            r["ended"] = r["ended"] or "handle_exit_intent" in r["tools"]
             turns.append(r)
-            await asyncio.sleep(0.5)
+            if ws.state is not State.OPEN:
+                break
         return {"id": item["id"], "focus": item.get("focus"), "turns": turns}
 
 
@@ -214,9 +223,15 @@ async def main_async(args) -> None:
         for k, t in enumerate(r["turns"]):
             print(f"{r['id']}_{k} e2e {t['e2e_ms']}ms (stt {t['stt_ms']}ms) CER {t['cer']:.2f}")
             tools = f"  🔧 {', '.join(t['tools'])}" if t["tools"] else ""
+            tools += "  👋（結束對話）" if t["ended"] else ""
             print(f"   👤 {t['ref']}\n   👂 {t['stt']}\n   🤖 {t['reply']}{tools}")
 
     turns = [t for r in results for t in r["turns"]]
+    want_exit = {i["id"] for i in items if i.get("exit")}
+    # 道別題只看最後一句
+    exit_turns = [r["turns"][-1] for r in results if r["id"] in want_exit]
+    other_turns = [t for r in results for k, t in enumerate(r["turns"])
+                   if not (r["id"] in want_exit and k == len(r["turns"]) - 1)]
     e2e = [t["e2e_ms"] for t in turns]
     summary = {
         "turns": len(turns),
@@ -228,13 +243,16 @@ async def main_async(args) -> None:
         "first_sentence_ms_median": pct([t["first_sentence_ms"] for t in turns], 0.5),
         "cer_mean": round(statistics.mean(t["cer"] for t in turns), 3),
         "no_reply": sum(1 for t in turns if not t["reply"]),
+        # 道別題（exit: true）有結束對話 / 其他題被誤判成道別
+        "exit_ok": f"{sum(t['ended'] for t in exit_turns)}/{len(exit_turns)}",
+        "exit_false": f"{sum(t['ended'] for t in other_turns)}/{len(other_turns)}",
     }
     print("\n=== 摘要 ===")
     for k, v in summary.items():
         print(f"{k:26s} {v}")
     out = ROOT / f"logs/eval_voice_{args.tag}.json"
     out.write_text(json.dumps({"summary": summary, "results": results}, ensure_ascii=False, indent=2))
-    print(f"\n結果：{out}\n小晴的回答音檔：eval/voice/replies/{args.tag}/")
+    print(f"\n結果：{out}\n回答音檔：eval/voice/replies/{args.tag}/")
 
 
 def main() -> None:

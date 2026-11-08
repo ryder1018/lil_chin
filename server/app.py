@@ -52,13 +52,15 @@ class Context:
         ch = cfg["character"]
         self.persona = resolve(ch["persona"]).read_text(encoding="utf-8")
         self.voice_rules = resolve(ch["voice_rules"]).read_text(encoding="utf-8")
+        self.exit_check = resolve(ch["exit_check"]).read_text(encoding="utf-8") if ch.get("exit_check") else None
         self.conv_dir = resolve(cfg["logging"]["conversation_dir"])
         log.info(f"模型載入完成（{time.perf_counter() - t:.1f} 秒）")
 
     def new_brain(self) -> Brain:
         c = self.cfg
         return Brain(c["llm"]["url"], self.persona, self.voice_rules, c["character"]["goodbye_reply"],
-                     c["llm"]["max_tokens"], c["llm"]["history_turns"], self.http)
+                     c["llm"]["max_tokens"], c["llm"]["history_turns"], self.http,
+                     exit_check=self.exit_check)
 
 
 # ---------- WebSocket ----------
@@ -115,7 +117,7 @@ async def main_async(cfg: dict) -> None:
     await runner.setup()
     await web.TCPSite(runner, s["host"], s["http_port"]).start()
     async with serve(lambda ws: handle_ws(ws, ctx), s["host"], s["ws_port"], max_size=None, ping_interval=None):
-        log.info(f"✅ 小晴上線：網頁 http://localhost:{s['http_port']}/  裝置 ws://<本機IP>:{s['ws_port']}{WS_PATH}")
+        log.info(f"✅ 小魚上線：網頁 http://localhost:{s['http_port']}/  裝置 ws://<本機IP>:{s['ws_port']}{WS_PATH}")
         await asyncio.Future()
 
 

@@ -1,4 +1,4 @@
-"""小晴的大腦：組 prompt、管對話歷史、串流呼叫 llama-server、切句清理、處理工具。
+"""機器人的大腦：組 prompt、管對話歷史、串流呼叫 llama-server、切句清理、處理工具。
 
   使用者的話（ASR，可能是簡體）
     → 轉台灣繁體
@@ -25,31 +25,44 @@ EXIT_TOOL = {
     "type": "function",
     "function": {
         "name": "handle_exit_intent",
-        "description": "對方要道別、去睡覺、結束聊天時呼叫，會在道別後結束這次對話",
-        "parameters": {
-            "type": "object",
-            "properties": {"say_goodbye": {"type": "string", "description": "溫柔的道別語，一句話"}},
-            "required": ["say_goodbye"],
-        },
+        "description": "對方要道別、去睡覺、結束聊天時，先用一句話溫柔道別，再呼叫這個工具結束這次對話",
+        "parameters": {"type": "object", "properties": {}},
     },
 }
 TOOLS = [EXIT_TOOL]
 
 FALLBACK_REPLY = "嗯？我剛剛恍神了，可以再說一次嗎？"
 
+# 道別偵測：4B 模型道別時常常只說「晚安」卻忘了呼叫工具（實測 24 次只叫 7 次），
+# 所以沒呼叫工具時，再用獨立的分類 prompt（prompts/exit_check.md）問一次「對方是不是要走了」。
+#   - 不帶人設：帶著人設問的話她很愛回答「是」（誤判 74/195）；獨立 prompt 誤判 1–2/71、道別 15/15（scripts/eval_exit.py）。
+#   - 在她開口之後才跑（約 100ms），不影響延遲。
+#   - llama-server 的 RAM prompt cache（--cache-ram，預設開）會把主對話的 KV cache 還原，下一輪照樣命中。
+EXIT_GRAMMAR = 'root ::= "是" | "否"'
 
-def fewshot(goodbye: str) -> list[dict]:
-    """示範一次「道別 → 呼叫工具」。小模型沒看過示範的話很少主動呼叫工具。
-    （做法參考 xiaozhi-esp32-server 的 few-shot 注入；只放在這次請求，不進對話歷史）"""
-    return [
-        {"role": "user", "content": "掰掰"},
-        {"role": "assistant", "content": "", "tool_calls": [{
-            "id": "fewshot_exit", "type": "function",
-            "function": {"name": "handle_exit_intent", "arguments": json.dumps({"say_goodbye": goodbye}, ensure_ascii=False)},
-        }]},
-        {"role": "tool", "tool_call_id": "fewshot_exit", "content": "已結束對話"},
-        {"role": "assistant", "content": goodbye},
-    ]
+# 示範用的道別（和 config 的 goodbye_reply 不同句：示範句和預設句一樣的話，模型會直接照抄而不呼叫工具）
+FEWSHOT_BYES = [("掰掰", "掰掰，路上小心喔。"), ("好睏，我要去睡了", "晚安，好好休息喔。")]
+
+
+def fewshot() -> list[dict]:
+    """示範「道別 → 先說道別語 → 再呼叫工具」。小模型沒看過示範的話很少主動呼叫工具。
+    （做法參考 xiaozhi-esp32-server 的 few-shot 注入；只放在這次請求，不進對話歷史）
+
+    道別語放在一般文字（content）而不是工具參數裡：文字可以逐句串流，第一句馬上就能送 TTS；
+    工具參數要等整段 JSON 生完才拿得到，會多等 ~400ms。
+    """
+    msgs: list[dict] = []
+    for i, (user, bye) in enumerate(FEWSHOT_BYES):
+        call_id = f"fewshot_exit_{i}"
+        msgs += [
+            {"role": "user", "content": user},
+            {"role": "assistant", "content": bye, "tool_calls": [{
+                "id": call_id, "type": "function",
+                "function": {"name": "handle_exit_intent", "arguments": "{}"},
+            }]},
+            {"role": "tool", "tool_call_id": call_id, "content": "已結束對話"},
+        ]
+    return msgs
 
 
 @dataclass
@@ -60,6 +73,7 @@ class Reply:
     spoken: list[str] = field(default_factory=list)
     tool_calls: list[dict] = field(default_factory=list)
     exit: bool = False
+    exit_by: str | None = None  # "tool"（大腦自己呼叫工具）/ "check"（事後問出來的）
     ttft_ms: float | None = None
     first_segment_ms: float | None = None
     total_ms: float | None = None
@@ -71,7 +85,8 @@ class Brain:
     """一個連線一個 Brain（各自有對話歷史）。"""
 
     def __init__(self, url: str, persona: str, voice_rules: str, goodbye: str,
-                 max_tokens: int = 300, history_turns: int = 10, client: httpx.AsyncClient | None = None):
+                 max_tokens: int = 300, history_turns: int = 10, client: httpx.AsyncClient | None = None,
+                 exit_check: str | None = None):
         self.url = url.rstrip("/")
         self.persona = persona.strip()
         self.voice_rules = voice_rules.strip()
@@ -79,6 +94,7 @@ class Brain:
         self.max_tokens = max_tokens
         self.history_turns = history_turns
         self.history: list[dict] = []
+        self.exit_check = exit_check.strip() if exit_check else None
         self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0))
 
     def system_prompt(self, now: datetime | None = None) -> str:
@@ -89,7 +105,7 @@ class Brain:
 
     def messages(self, user: str) -> list[dict]:
         hist = self.history[-self.history_turns * 2 :]
-        return [{"role": "system", "content": self.system_prompt()}, *fewshot(self.goodbye), *hist,
+        return [{"role": "system", "content": self.system_prompt()}, *fewshot(), *hist,
                 {"role": "user", "content": user}]
 
     async def prewarm(self) -> None:
@@ -101,7 +117,7 @@ class Brain:
         2. 先把 [system + 示範 + 歷史] 算進 KV cache：真正的問題來時只需要算新的那一句。
         """
         hist = self.history[-self.history_turns * 2 :]
-        msgs = [{"role": "system", "content": self.system_prompt()}, *fewshot(self.goodbye), *hist,
+        msgs = [{"role": "system", "content": self.system_prompt()}, *fewshot(), *hist,
                 {"role": "user", "content": "嗯"}]
         try:
             r = await self.client.post(f"{self.url}/chat/completions",
@@ -160,7 +176,7 @@ class Brain:
         rec.tool_calls = list(calls.values())
         for c in rec.tool_calls:
             if c["name"] == "handle_exit_intent":
-                rec.exit = True
+                rec.exit, rec.exit_by = True, "tool"
                 if not rec.spoken:
                     try:
                         bye = json.loads(c["arguments"] or "{}").get("say_goodbye") or self.goodbye
@@ -172,5 +188,21 @@ class Brain:
             for s in emit([FALLBACK_REPLY]):
                 yield s
         rec.total_ms = (time.perf_counter() - t0) * 1000
+        said = "".join(rec.spoken)
+        if not rec.exit and said != FALLBACK_REPLY and await self.wants_exit(user):
+            rec.exit, rec.exit_by = True, "check"
 
-        self.history += [{"role": "user", "content": user}, {"role": "assistant", "content": "".join(rec.spoken)}]
+        self.history += [{"role": "user", "content": user}, {"role": "assistant", "content": said}]
+
+    async def wants_exit(self, user: str) -> bool:
+        """問分類 prompt：對方這句話是不是要結束聊天？（沒設定 exit_check 就只靠工具呼叫）"""
+        if not self.exit_check:
+            return False
+        msgs = [{"role": "system", "content": self.exit_check}, {"role": "user", "content": user}]
+        try:
+            r = await self.client.post(f"{self.url}/chat/completions",
+                                       json={"messages": msgs, "max_tokens": 1, "temperature": 0, "grammar": EXIT_GRAMMAR})
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"].get("content") == "是"
+        except Exception:
+            return False

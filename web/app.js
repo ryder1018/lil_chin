@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const IN_RATE = 16000, OUT_RATE = 24000, FRAME_US = 60000;
 
 const STATE_TEXT = {
-  offline: "按「開始」跟小晴說話",
+  offline: "按「開始」跟小魚說話",
   listening: "在聽喔，說吧",
   hearing: "在聽…",
   thinking: "想一下…",

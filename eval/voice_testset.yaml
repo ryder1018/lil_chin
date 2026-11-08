@@ -4,6 +4,7 @@
 # 音檔：scripts/make_voice_testset.py 用 TTS 合成到 eval/voice/utterances/<id>_<n>.wav（16kHz）
 #   ⚠ 合成語音比真人清楚，ASR 分數會偏樂觀；之後可以把同名檔案換成自己的錄音。
 # focus：這題主要在測什麼（asr / latency / brain / tool）
+# exit: true：最後一句是道別，應該結束對話（其他句都不應該結束）
 
 items:
   - id: v01
@@ -44,6 +45,7 @@ items:
     turns: ["我叫阿哲，最近在準備研究所考試", "你還記得我叫什麼嗎"]
   - id: v13
     focus: tool
+    exit: true
     turns: ["好啦我要去睡了，拜拜"]
   - id: v14
     focus: brain
@@ -51,3 +53,10 @@ items:
   - id: v15
     focus: latency
     turns: ["今天天氣好冷喔", "那晚餐要吃什麼", "好，謝謝你"]
+  - id: v16
+    focus: tool
+    exit: true
+    turns: ["我要去忙了，晚點再聊"]
+  - id: v17
+    focus: tool
+    turns: ["晚安的英文怎麼說"]
