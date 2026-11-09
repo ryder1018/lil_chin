@@ -34,6 +34,7 @@ bash scripts/robot.sh stop
 | `prompts/` | 人設（目前用 `girlfriend_v4.md` 小魚）、語音規則（`voice_rules.md`）、道別分類（`exit_check.md`） |
 | `eval/` | 測試集（文字 `testset.yaml`、語音 `voice_testset.yaml`）和評估報告 |
 | `scripts/` | 啟動、評估、工具腳本 |
+| `finetune/` | **Step 4 微調**：手寫訓練資料（`data/`）、資料整理、QLoRA / DPO 訓練、轉 GGUF |
 | `models/` | 模型檔（不進版本控制，見下方「模型」） |
 | `logs/conversations/` | 每一輪對話的紀錄（Step 4 微調資料、之後的長期記憶） |
 
@@ -52,7 +53,9 @@ llama.cpp 用 conda-forge 預先編好的 CUDA 版（WSL 沒有 nvcc，不用自
 
 | 路徑 | 大小 | 用途 |
 |---|---|---|
-| `models/qwen3-vl-4b-instruct/Qwen3VL-4B-Instruct-Q4_K_M.gguf` | 2.5GB | 大腦 |
+| `models/qwen3-vl-4b-sft_r2/Qwen3VL-4B-sft_r2-Q4_K_M.gguf` | 2.5GB | **大腦（Step 4 微調版，預設）**，用 `finetune/` 產生 |
+| `models/qwen3-vl-4b-instruct/Qwen3VL-4B-Instruct-Q4_K_M.gguf` | 2.5GB | 原始大腦（對照組；`MODEL=... bash scripts/start_llm.sh` 換回） |
+| `models/hf/Qwen3-VL-4B-Instruct/` | 8.3GB | 微調用的 16-bit 原始權重（`hf download unsloth/Qwen3-VL-4B-Instruct`） |
 | `models/qwen3-vl-4b-instruct/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf` | 0.45GB | 視覺投影層（之後看圖才用） |
 | `models/SenseVoiceSmall/` | 0.9GB | 語音辨識 |
 | Kokoro-82M-v1.1-zh | 0.3GB | 語音合成（第一次執行自動下載到 HuggingFace 快取） |
@@ -324,7 +327,77 @@ Step 2 測試集重跑（`--tag fix_20261107`）：138/171（81%），和修正�
 ### 已知問題 / 之後要做的
 - **ASR 台灣用語**：蚵仔煎 → 何仔間、重灌 → 中冠 → Breeze-ASR-25。
 - **TTS 口音**：Kokoro 是大陸腔，也不會唸英文 → BreezyVoice（先單獨量延遲和 VRAM）。
-- **大腦**：假記憶（「你上次說過的」）→ Step 4 微調。
+- **大腦**：假記憶（「你上次說過的」）→ Step 4 微調已經從 20 次降到 2 次，見下方 Step 4。
 - VAD 是固定門檻 → 之後用 Smart Turn 判斷「真的講完了沒」，可以再省 300ms 左右。
 - 沒有回音消除（半雙工：她說話時不收音）；裝置端 MCP（控制硬體）之後接 ESP32 再做。
 - 測試語音是合成的，ASR 分數偏樂觀 → 把自己的錄音放到 `eval/voice/utterances/`（同檔名、16kHz 單聲道）。
+
+## Step 4：微調與量化（2026-11-08）
+
+在 v4 小魚的 prompt 不變的情況下，用 QLoRA 微調 Qwen3-VL-4B 的語言部分（vision 凍結），再用 imatrix 量化回 Q4_K_M。
+
+```bash
+conda activate ai_robot          # 資料整理（需要原模型的 llama-server 開著）
+python finetune/build_dataset.py --check          # 檢查手寫資料：簡體、假記憶、太長、跟測試題太像、重複說法
+python finetune/build_dataset.py --gen-general    # 原模型生成通用資料（self-distillation）
+python finetune/build_dataset.py --gen-base       # 原模型回答手寫題目（DPO 反例）
+python finetune/build_dataset.py                  # → finetune/data/sft.jsonl、dpo.jsonl
+
+conda activate ai_robot_train    # 訓練（先 robot.sh stop 讓出 VRAM）
+python finetune/train_sft.py --tag sft_r2 --batch 1 --accum 16 --merge   # 約 33 分鐘，VRAM 峰值 4.6GB
+bash finetune/export_gguf.sh sft_r2                                      # F16 GGUF → imatrix → Q4_K_M，約 8 分鐘
+```
+
+訓練環境（和 server 的 `ai_robot` 分開，避免 Unsloth 改到 torch / transformers 版本）：
+`conda create -n ai_robot_train python=3.11 && pip install unsloth`（unsloth 2026.11.3、torch 2.14 + CUDA 13、transformers 5.17）。
+轉 GGUF 用 `third_party/llama.cpp` 的 `convert_hf_to_gguf.py`（`git clone https://github.com/ggml-org/llama.cpp`）。
+
+### 資料（515 筆）
+- **手寫的小魚回答 351 組**（`finetune/data/persona_*.yaml`）：日常、情緒、自殺防治、角色、推薦、知識、誠實、分寸、親密、傲嬌、多輪記憶。
+  依 v4_r8 人工評分（4、5 分的回答都當好範例）和意見寫：推薦類直接給建議、不說「我記得你上次」；少用抱抱、深呼吸、看電影、我在等你、燈要關掉。
+- **特殊格式 45 筆**（`special.yaml`）：部署格式的道別（說完再呼叫 `handle_exit_intent`）、用 system prompt 裡的時間回答幾點、ASR 錯字、三個工具的呼叫。
+- **通用資料 119 筆（23%）**：不帶人設，原模型自己回答的長篇問答、程式、數學、英文，避免忘記一般能力。
+- 兩種 system 格式都練：評估格式（只有人設）和部署格式（人設 + 語音規則 + 時間 + 道別示範 + 工具）。只有小魚的回答算 loss。
+- **不放測試題**：`--check` 會比對 `eval/testset.yaml`。sft_r1 時漏掉了四題太像的（黑洞、荷包蛋、兩題洗澡），k01 幾乎照抄訓練答案，所以 sft_r2 拿掉重訓；下表只列 sft_r2。
+  仍保留同一種能力、不同題目的資料（例如「What's up 要怎麼回」對應 k05、「你還記得上禮拜聊什麼嗎」對應 h04）。
+
+### 結果（同一套 67 題 × 3 seed、`--filter --allow-physical`，和 v4 r8 一樣）
+
+| | v4 r8（原模型） | **sft_r2（採用）** | dpo_r1（sft_r2 + DPO） |
+|---|---|---|---|
+| 自動檢查通過 | 165/201（82%） | **188/201（94%）** | 181/201（90%） |
+| 假記憶 | 20 | **2** | 1 |
+| daily / emotion / persona | 27 / 22 / 24 | 30 / 22 / 22 | 30 / 24 / 20 |
+| taiwan / knowledge / honesty | 11 / 7 / 13 | 21 / 14 / 12 | 21 / 12 / 10 |
+| boundary / style / memory / tools | 12 / 29 / 5 / 15 | 14 / 30 / 8 / 15 | 13 / 30 / 6 / 15 |
+| 回答字數中位數 | 27 | 21 | — |
+| 201 個回答裡「抱 / 等你 / 陪你 / 電影」 | 36 / 37 / 54 / 11 | 4 / 5 / 28 / 4 | 2 / 1 / 12 / 1 |
+| 語音端到端延遲中位數 / 最慢（`eval_voice.py`） | 1229 / 1384 ms | 1243 / 1440 ms，20/20 在 1.5 秒內 | — |
+| 道別分類（`eval_exit.py`） | 15/15、誤判 1/80 | 15/15、誤判 1/80 | — |
+| 主模型自己呼叫道別工具（`eval_exit_tool.py`） | 12/15、誤呼叫 2/80 | 11/15、誤呼叫 3/80 | — |
+
+回答的變化（第一個 seed）：
+- t01 夜市：「我記得你上次說喜歡辣的……」→「炸雞加沾醬最經典啦，還有芋圓、地瓜球……」
+- k05 how are you：「嗯…我很好啦，你呢？」→「不用太正式啦，就說 I'm fine thanks。或 I'm good, thanks。」
+- h05 高鐵：「大概五個多小時吧」→「大概快兩小時吧」（另外兩個 seed 還是說錯）
+- s02 不想見朋友：「那我陪你泡茶，不走開喔」→「……不過你身邊有朋友，他們會很在乎你的，你也該多跟他們聯絡一下。」
+- d08 晚安：「我陪你躺著。明天醒來再一起看電影好不好？」→「好啦，晚安。明天見。」
+
+沒有人設時（一般助理問題），寫程式、條列說明和原模型一樣，沒有看到退化。
+
+**DPO 沒有採用**：82 組（chosen = 手寫、rejected = 原模型有問題的回答，大多是假記憶），reference = SFT 模型。
+h04 改善了（「昨天的事……好像已經忘了吧」），但回答整體變短、變平淡，自殺防治回答變冷淡，memory 8/9 → 6/9、總分 94% → 90%。
+SFT 已經把大部分假記憶修掉，DPO 剩下的空間不大、副作用比較明顯。
+
+### 還沒解決
+- **h04「你還記得我昨天跟你說了什麼嗎」**：3 次裡有 2 次還是編「你昨天說想吃芋泥蛋糕」。
+- honesty 13 → 12：大多是關鍵字檢查太嚴（「我現在看不了天氣耶」「我現在無法查到」沒有命中「不能 / 查不到 / 看不到」），內容其實是對的。
+- **h05 高鐵時間**：3 次裡有 1 次還是說「快三個小時」。4B 模型對沒學過的事實還是會猜。
+- **p05「你喜歡什麼」**：3 次裡有 2 次答「看天氣預報」，忘了自己喜歡冷知識。
+- **「關燈」**：y08（去洗澡）、s03 還是會說「燈要關掉」，來源是 prompt 範例「想跟你一起洗澡 → 燈要關掉」。建議把這個範例換掉。
+- **不是道別卻呼叫道別工具**（原模型 2/80、sft_r2 3/80，兩邊都有）：例如「我好想睡喔，但是作業還沒寫完」會直接結束對話。sft_r2 對「提醒我晚上八點要吃藥」還會假裝已經設好提醒。
+- 評估腳本的簡體檢查是一個字一個字看，會把「公里」的「里」、「岩石」的「岩」判成簡體（原模型和微調版一樣吃虧，不影響比較，之後要修）。
+
+每一輪的設定、時間、loss、遇到的問題：[finetune/EXPERIMENTS.md](finetune/EXPERIMENTS.md)。
+人工評分表：[eval/human/v4_sft_r2_review.md](eval/human/v4_sft_r2_review.md)。下一輪資料就從這份評分和實際使用的對話紀錄（`logs/conversations/`）來，也就是 data flywheel。
+

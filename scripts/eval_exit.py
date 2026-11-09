@@ -67,4 +67,5 @@ async def main():
     print(f"之後主對話 {1000*(time.perf_counter()-t):.0f}ms prompt_n={d['timings']['prompt_n']} cache_n={d['timings']['cache_n']}")
 
 
-asyncio.run(main())
+if __name__ == "__main__":  # 讓 eval_exit_tool.py 可以 import POS/NEG
+    asyncio.run(main())

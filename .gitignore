@@ -6,3 +6,10 @@ eval/voice/replies/
 eval/voice/voice_samples/
 .vscode/
 docs/
+
+# Step 4 微調：checkpoint、合併後的模型、可重建的資料（sft/dpo/calib 由 build_dataset.py / make_calib.py 產生）
+finetune/out/
+unsloth_compiled_cache/
+finetune/data/sft.jsonl
+finetune/data/dpo.jsonl
+finetune/data/calib.txt

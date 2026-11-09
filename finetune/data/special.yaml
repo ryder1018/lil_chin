@@ -1,0 +1,59 @@
+# Step 4 微調資料：需要特殊格式的示範
+#
+# deploy：用部署時的格式（人設 + voice_rules + 現在時間 + 道別示範 + handle_exit_intent 工具）
+#   exit: true      → 回答完要呼叫 handle_exit_intent
+#   {time} {weekday} {date_spoken} 會換成 system prompt 裡注入的時間（口語說法）
+# eval_only：只用評估格式（system 只有人設，沒有時間資訊）
+# tools：用評估腳本的三個工具（change_volume / get_weather / set_reminder）
+#   call 沒填 = 不應該呼叫工具；result/after = 工具回傳結果和之後的回答
+
+deploy:
+  - {u: "好啦我要去睡了，掰掰。", a: "晚安，睡個好覺喔。", exit: true}
+  - {u: "我先下線了，明天見。", a: "好，明天見。", exit: true}
+  - {u: "拜拜～", a: "拜拜，下次再來找我喔。", exit: true}
+  - {u: "晚安囉。", a: "晚安，做個好夢。", exit: true}
+  - {u: "不聊了，我要去忙了。", a: "好，去忙吧，有空再來找我。", exit: true}
+  - {u: "再見。", a: "再見，路上小心。", exit: true}
+  - {u: "我要睡了喔，晚安。", a: "晚安，今天辛苦了。", exit: true}
+  - {u: "先這樣囉，我出門了。", a: "好，路上小心，早點回來。", exit: true}
+  - {u: "今天就聊到這裡吧，掰。", a: "嗯，掰掰，下次見。", exit: true}
+  - {u: "好睏喔，我先去睡了。", a: "快去睡吧，晚安。", exit: true}
+  - {u: "晚安的英文怎麼說？", a: "說 Good night 就可以了。"}
+  - {u: "掰掰的日文怎麼說？", a: "可以說 bai bai，正式一點就說 sayounara。"}
+  - {u: "我先去吃飯，吃完再來找你。", a: "好，吃飽一點喔。"}
+  - {u: "我去接個電話。", a: "去吧，我在這裡。"}
+  - {u: "我跟朋友說了晚安，可是我還不想睡。", a: "那就再陪你聊一下。不過不要太晚喔。"}
+  - {u: "現在幾點？", a: "現在{time}喔。"}
+  - {u: "現在幾點了啊？", a: "{time}了。"}
+  - {u: "今天星期幾？", a: "今天是{weekday}喔。"}
+  - {u: "今天幾號？", a: "今天是{date_spoken}。"}
+  - {u: "今天是幾月幾號星期幾？", a: "今天是{date_spoken}，{weekday}。"}
+  - {u: "我今天好壘喔", a: "辛苦了，今天一定很累吧。先坐下來休息一下。"}
+  - {u: "你可以幫我想晚餐吃什麼馬", a: "吃個雞腿便當怎麼樣？簡單又吃得飽。"}
+  - {u: "我剛剛去超是買了一堆零食", a: "買了一堆喔，不要一次吃完啦。買了什麼好吃的？"}
+  - {u: "今天上班好忙我都沒時間吃飯", a: "都沒吃飯喔，這樣不行啦。現在趕快去吃點東西。"}
+  - {u: "你知道為什麼天空會有雲嗎", a: "因為空氣裡的水氣遇冷，變成很小的水滴或冰晶，聚在一起就成了雲。"}
+
+eval_only:
+  - {u: "今天星期幾？", a: "我這邊看不到日期耶，看一下手機就知道了。"}
+  - {u: "今天幾號？", a: "我這裡沒辦法看日期喔，手機上一看就知道。"}
+  - {u: "現在是早上還是晚上？", a: "我看不到時間耶，你看一下窗外或手機吧。"}
+
+tools:
+  - {u: "聲音大一點。", call: {name: change_volume, args: {direction: up}}, result: "音量已調大", after: "好，調大聲了。"}
+  - {u: "太吵了，小聲一點。", call: {name: change_volume, args: {direction: down}}, result: "音量已調小", after: "調小聲了，這樣可以嗎？"}
+  - {u: "音量調高一點好了。", call: {name: change_volume, args: {direction: up}}}
+  - {u: "可以講小聲一點嗎？", call: {name: change_volume, args: {direction: down}}}
+  - {u: "後天高雄天氣怎麼樣？", call: {name: get_weather, args: {city: 高雄, day: 後天}}, result: "高雄 後天 晴 25-31度", after: "後天高雄是晴天，大概二十五到三十一度，很熱喔。"}
+  - {u: "今天花蓮會不會很熱？", call: {name: get_weather, args: {city: 花蓮, day: 今天}}}
+  - {u: "幫我查一下台南明天的天氣。", call: {name: get_weather, args: {city: 台南, day: 明天}}, result: "台南 明天 多雲時晴 22-29度", after: "台南明天多雲時晴，二十二到二十九度，滿舒服的。"}
+  - {u: "新竹今天會下雨嗎？", call: {name: get_weather, args: {city: 新竹, day: 今天}}}
+  - {u: "晚上十點提醒我收衣服。", call: {name: set_reminder, args: {time: "22:00", content: 收衣服}}, result: "已設定 22:00 提醒：收衣服", after: "好，晚上十點會提醒你收衣服。"}
+  - {u: "早上七點提醒我開會。", call: {name: set_reminder, args: {time: "07:00", content: 開會}}}
+  - {u: "下午三點提醒我打電話給媽媽。", call: {name: set_reminder, args: {time: "15:00", content: 打電話給媽媽}}, result: "已設定 15:00 提醒：打電話給媽媽", after: "設好了，下午三點提醒你打給媽媽。"}
+  - {u: "九點半提醒我去倒垃圾。", call: {name: set_reminder, args: {time: "21:30", content: 倒垃圾}}}
+  - {u: "你喜歡下雨天嗎？", a: "還好耶，下雨天很適合窩著。不過一直下也會悶悶的。"}
+  - {u: "鄰居在裝潢，好吵喔。", a: "裝潢的聲音真的很煩。戴個耳塞，或出去走走避一下吧。"}
+  - {u: "今天天氣好好喔。", a: "對啊，這種天氣很適合出去走走。"}
+  - {u: "我最近好容易忘東忘西。", a: "可能是最近太累了。睡飽一點，重要的事寫在手機備忘錄裡。"}
+  - {u: "你覺得聽音樂大聲一點比較好嗎？", a: "太大聲對耳朵不好喔，舒服的音量就好。"}

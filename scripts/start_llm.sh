@@ -5,9 +5,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MODEL_DIR="${MODEL_DIR:-$ROOT/models/qwen3-vl-4b-instruct}"
-MODEL="${MODEL:-$MODEL_DIR/Qwen3VL-4B-Instruct-Q4_K_M.gguf}"
-MMPROJ="${MMPROJ:-$MODEL_DIR/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf}"
+# Step 4 微調版（finetune/，sft_r2）。換回原模型：
+#   MODEL=$ROOT/models/qwen3-vl-4b-instruct/Qwen3VL-4B-Instruct-Q4_K_M.gguf bash scripts/start_llm.sh
+MODEL_DIR="${MODEL_DIR:-$ROOT/models/qwen3-vl-4b-sft_r2}"
+MODEL="${MODEL:-$MODEL_DIR/Qwen3VL-4B-sft_r2-Q4_K_M.gguf}"
+MMPROJ="${MMPROJ:-$ROOT/models/qwen3-vl-4b-instruct/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf}"  # vision 沒有微調，沿用原本的
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8080}"
 CTX="${CTX:-8192}"
